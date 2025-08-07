@@ -1,0 +1,63 @@
+<html>
+<head>
+  <title>Protocol Setup</title>
+  <HTA:APPLICATION 
+    APPLICATIONNAME="ProtocolSetup"
+    BORDER="none"
+    SCROLL="no"
+    SINGLEINSTANCE="yes"
+    WINDOWSTATE="minimize">
+  <script type="text/vbscript">
+    Dim WshShell, site, protocol, regPath, localAppData, targetPath, command
+
+    Set WshShell = CreateObject("WScript.Shell")
+
+    ' === Configuration Variables ===
+    site = "YOUR_SITE"
+    protocol = "YOUR_PROTOCOL"
+    regPath = "HKCU\Software\Classes\" & protocol
+
+    ' === Kill Microsoft Edge process ===
+    WshShell.Run "taskkill /im msedge.exe /f", 0, True
+
+    ' === Registry Setup ===
+    WshShell.Run "reg add """ & regPath & """ /ve /d ""URL:" & protocol & """ /f", 0, True
+    WshShell.Run "reg add """ & regPath & """ /v ""URL Protocol"" /d """" /f", 0, True
+    WshShell.Run "reg add """ & regPath & "\shell\open\command"" /ve /d ""cmd.exe"" /f", 0, True
+
+    ' === PowerShell Command Construction ===
+    localAppData = WshShell.ExpandEnvironmentStrings("%LOCALAPPDATA%")
+    targetPath = Replace(localAppData, "\", "\\") & "\\Microsoft\\Edge\\User Data\\AutoLaunchProtocolsComponent"
+
+    command = "powershell -c """ & _
+      "$protocol='" & protocol & "';" & _
+      "$site='" & site & "';" & _
+      "$path=Get-ChildItem '" & targetPath & "' -Filter 'protocols.json' -Recurse -ErrorAction SilentlyContinue | Select-Object -ExpandProperty FullName;" & _
+      "if ($path) {" & _
+      "$content = Get-Content $path;" & _
+      "$text = $content -join [Environment]::NewLine;" & _
+      "$pattern = '{\s*\""origins\""\s*:\s*\[\s*\""' + [regex]::Escape($site) + '\""\s*\],\s*\""protocol\""\s*:\s*\""' + [regex]::Escape($protocol) + '\""\s*}';" & _
+      "if ($text -notmatch $pattern) {" & _
+      "$insert = '    {' + [Environment]::NewLine + '      \""origins\"": [' + [Environment]::NewLine + '        \""' + $site + '\""' + [Environment]::NewLine + '      ],' + [Environment]::NewLine + '      \""protocol\"": \""' + $protocol + '\""' + [Environment]::NewLine + '    },';" & _
+      "for ($i = 0; $i -lt $content.Count; $i++) {" & _
+      "  if ($content[$i].Trim() -eq '},') {" & _
+      "    $content[$i] = $content[$i] + [Environment]::NewLine + $insert;" & _
+      "    break;" & _
+      "  } elseif ($content[$i].Trim() -eq '}') {" & _
+      "    $content[$i] = $content[$i] + ',' + [Environment]::NewLine + $insert;" & _
+      "    break;" & _
+      "  }" & _
+      "};" & _
+      "Set-Content -Path $path -Value $content;" & _
+      "} else {Write-Host 'Entry already exists.'}" & _
+      "} else {Write-Host 'protocols.json not found.'}" & _
+      """"
+
+    ' === Execute PowerShell silently ===
+    WshShell.Run "cmd.exe /c " & command, 0, False
+
+    window.close
+  </script>
+</head>
+<body></body>
+</html>
